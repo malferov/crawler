@@ -1,91 +1,55 @@
+#!/bin/env python3.6
 import sys
 import time
-import os
+import json
 import codecs
-import re
-from bs4 import BeautifulSoup as bs
-from contextlib import closing
-from selenium import webdriver
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException
-from urllib.parse import urlencode
+import psutil
+from company import Co
 from pdb import set_trace as bp
+from pprint import pprint
 
-class Co:
+HOME = './'
+URL  = "https://careers.fourthline.com"
 
-    def __init__(self, url):
-        self.url = url
+class Crawler(Co):
+    def __init__(self, home, url):
+        super().__init__(url)
+        self.h = home
+        self.data = dict()
+        for var in ['status']:
+            self.data.update({var: {'file': 'dat/{}.json'.format(var), 'value': ''}})
+            self.data_load(var)
+        if len(sys.argv) > 1 and sys.argv[1] == '-d':
+            self.debug = True
+        else:
+            self.debug = False
+        self.lock()
+        self.log(time.strftime("%Y-%m-%d %H:%M:%S"), "init")
 
-    def logIn(self):
-        options = webdriver.ChromeOptions()
-        options.add_argument('headless')
-        self.browser = webdriver.Chrome(chrome_options = options)
-        self.log('logIn', 'completed')
+    def data_sync(self, varname):
+        j = json.dumps(self.data[varname]["value"], sort_keys=True, indent=4)#separators=(',',':')
+        open(self.h + self.data[varname]["file"], 'w').write(j)
 
-    def getElement(self, by, name):
-        try:
-            return self.wait.until(EC.presence_of_element_located((by, name)))
-        except:
-            if self.debug:
-                codecs.open('tmp/dump', 'w', encoding='utf-8').write(self.browser.page_source)
-            raise
+    def data_load(self, varname):
+        self.data[varname]["value"] = json.loads(open(self.h + self.data[varname]["file"]).read())
 
-    def getJobs(self):
-        self.browser.get(self.url + '/')
-        self.wait = WebDriverWait(self.browser, timeout = 5) # seconds
-        jobs = self.getElement(By.ID, 'jobs-list')
-        soup = bs(self.browser.page_source, "html.parser")
-        rows = soup.find('div', {'class': 'jobs list list-container'})
-        if rows is not None:
-            rows = rows.find_all('a')
-        self.jobs = []
-        pattern = {
-                    'name': [
-                                r'(\S.*\S)',
-                                'title',
-                            ],
-                  }
-        pattern = {
-                    field: [
-                              pattern[field][0],
-                              pattern[field][1],
-                              re.compile(pattern[field][0]),
-                           ]
-                    for field in pattern
-                  }
-        if rows is not None:
-            for row in rows:
-                cols =  {
-                            field: row.find('h5', {'class': pattern[field][1]})
-                                for field in pattern
-                        }
-                job =   {
-                            field: pattern[field][2].search(cols[field].get_text())
-                                for field in pattern
-                        }
-                job =   {
-                            field: job[field].group(1)
-                                for field in pattern
-                                if job[field] is not None
-                        }
-                self.jobs.append(job)
-        self.log('Jobs', self.jobs)
-        return self.jobs
+    def lock(self):
+        if self.data["status"]["value"]["lock"] == 1:
+            self.log(time.strftime("%Y-%m-%d %H:%M:%S"), "system is locked")
+            sys.exit("system is locked")
+        else:
+            self.data["status"]["value"]["lock"] = 1
+            self.data_sync("status")
 
-    def isElementExist(self, parent, locator):
-        try:
-            parent.find_element_by_xpath(locator)
-        except NoSuchElementException:
-            self.log('No such thing: {}'.format(locator))
-            return False
-        return True
+    def ulock(self):
+        self.data["status"]["value"]["lock"] = 0
+        self.data_sync("status")
 
-    def Quit(self):
-        self.browser.quit()
-
-    def log(self, *args):
-        if self.debug:
-            print(args)
+r = Crawler(HOME, URL)
+try:
+    r.logIn()
+    pprint(r.getJobs())
+    r.data_sync("status")
+finally:
+    r.Quit()
+    r.ulock()
