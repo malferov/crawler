@@ -2,3 +2,5 @@
 dat/*.dat
 log/*
 .pki
+*.pdf
+registry/registry
